@@ -10,6 +10,12 @@ For local development, provide `DISCORD_TOKEN` in the shell environment before s
 
 If a token has been committed to a public repository, revoke it in the Discord Developer Portal and set a newly generated token as `DISCORD_TOKEN` in Railway.
 
+## Ticket transcript links
+
+Manual ticket closures and the 48-hour automatic close use the same customer DM details. The HTML transcript is saved to persistent storage and the DM includes an **Open HTML Transcript** button instead of an HTML attachment. The transcript page includes ticket metadata, message search and participant filtering, attachment previews, replies, reactions, and a clear empty state.
+
+Railway production needs a public service domain and a persistent volume mounted at `/data`. Set `TRANSCRIPT_STORAGE_DIR=/data/transcripts` and `TRANSCRIPT_BASE_URL=https://<your-railway-domain>` on the bot service. Transcript URLs use random, unlisted IDs and are served with no-cache/no-index headers. Anyone who receives a transcript URL can view that ticket, so customers should avoid sharing it publicly. Files remain on the volume until an operator removes them.
+
 - **events -> ready.js** dosyasından botun durumunu değiştirebilirsin.
 
 # İletişim

@@ -101,19 +101,27 @@ test("manager restores legacy tickets and deletes their channel at the deadline"
 
     let deletedChannels = 0;
     let transcriptDms = 0;
+    let sentMessage;
     const channel = {
         id: "ticket-2",
         name: "ticket-customer",
         delete: async () => { deletedChannels += 1; }
     };
     const guild = {
+        name: "Support Server",
+        iconURL: () => null,
         channels: { cache: new Map([[channel.id, channel]]) }
     };
+    channel.guild = guild;
+    channel.topic = "customer user-1";
     const client = {
         guilds: { cache: new Map([["guild-1", guild]]) },
         users: {
             fetch: async () => ({
-                send: async () => { transcriptDms += 1; }
+                send: async message => {
+                    transcriptDms += 1;
+                    sentMessage = message;
+                }
             })
         }
     };
@@ -125,6 +133,7 @@ test("manager restores legacy tickets and deletes their channel at the deadline"
             setTimeoutFn: clock.setTimeoutFn,
             clearTimeoutFn: clock.clearTimeoutFn,
             buildTranscript: async () => "<html>ticket transcript</html>",
+            publishTranscript: async () => ({ url: "https://transcripts.example.test/transcripts/abc" }),
             logger: { error() {} }
         });
         manager.start();
@@ -138,6 +147,10 @@ test("manager restores legacy tickets and deletes their channel at the deadline"
         await clock.advanceBy(1);
         assert.equal(deletedChannels, 1);
         assert.equal(transcriptDms, 1);
+        assert.match(sentMessage.embeds[0].data.description, /automatically closed after 48 hours/);
+        assert.match(sentMessage.embeds[0].data.description, /Ticket Information/);
+        assert.equal(sentMessage.components[0].components[0].data.url, "https://transcripts.example.test/transcripts/abc");
+        assert.equal(sentMessage.files, undefined);
         assert.deepEqual(JSON.parse(fs.readFileSync(ticketsFile, "utf8")), []);
     } finally {
         fs.rmSync(tempDirectory, { recursive: true, force: true });

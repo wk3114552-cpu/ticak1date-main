@@ -2,6 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const { AttachmentBuilder } = require("discord.js");
 const buildTranscript = require("./transcriptGenerator");
+const { publishTranscript } = require("./transcriptStore");
+const { createTicketClosureNotice, getTicketCustomer } = require("./ticketClosure");
 
 const TICKET_LIFETIME_MS = 48 * 60 * 60 * 1000;
 const RETRY_DELAY_MS = 60 * 1000;
@@ -60,6 +62,7 @@ function createTicketExpiryManager(client, options = {}) {
     const ticketsFile = options.ticketsFile || DEFAULT_TICKETS_FILE;
     const now = options.now || Date.now;
     const transcriptBuilder = options.buildTranscript || buildTranscript;
+    const transcriptPublisher = options.publishTranscript || publishTranscript;
     const logger = options.logger || console;
 
     function readTickets() {
@@ -99,14 +102,15 @@ function createTicketExpiryManager(client, options = {}) {
             return;
         }
 
-        let transcript;
+        let transcriptBuffer = null;
+        let transcriptUrl = null;
         try {
             const html = await transcriptBuilder(channel);
-            transcript = new AttachmentBuilder(Buffer.from(html, "utf8"), {
-                name: `transcript-${channel.name}.html`
-            });
+            transcriptBuffer = Buffer.from(html, "utf8");
+            const published = await transcriptPublisher(html);
+            transcriptUrl = published.url;
         } catch (error) {
-            logger.error("Could not prepare the ticket transcript:", error);
+            logger.error("Could not publish the ticket transcript:", error);
         }
 
         try {
@@ -123,14 +127,29 @@ function createTicketExpiryManager(client, options = {}) {
             return;
         }
 
-        if (transcript) {
-            const user = await client.users.fetch(ticket.userId).catch(() => null);
-            if (user) {
-                await user.send({
-                    content: "⏰ Your ticket has been automatically closed and deleted after 48 hours.",
-                    files: [transcript]
-                }).catch(() => {});
+        const user = await client.users.fetch(ticket.userId).catch(() => null);
+        if (user) {
+            const customer = getTicketCustomer(channel, ticket.userId);
+            const dmMessage = createTicketClosureNotice({
+                channel,
+                username: customer.username || user.username,
+                userId: ticket.userId,
+                automatic: true,
+                transcriptUrl,
+                transcriptFallbackAvailable: Boolean(transcriptBuffer)
+            });
+            if (!transcriptUrl && transcriptBuffer) {
+                dmMessage.files = [
+                    new AttachmentBuilder(transcriptBuffer, {
+                        name: "transcript-" + channel.name + ".html"
+                    })
+                ];
             }
+            await user.send(dmMessage).catch(error => {
+                logger.error("Could not DM the owner of expired ticket " + ticket.channelId + ":", error);
+            });
+        } else {
+            logger.warn?.("Could not find the owner of expired ticket " + ticket.channelId + " for the closure DM.");
         }
     }
 

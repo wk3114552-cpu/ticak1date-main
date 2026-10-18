@@ -15,6 +15,8 @@ const fs = require('fs');
 const path = require("path");
 const buildTranscript = require('../transcriptGenerator');
 const { TICKET_LIFETIME_MS } = require("../ticketExpiry");
+const { publishTranscript } = require("../transcriptStore");
+const { createTicketClosureNotice, getTicketCustomer } = require("../ticketClosure");
 const ticketCreationLocks = new Set();
 const databaseDirectory = path.join(__dirname, '..', 'database');
 const ticketsFile = path.join(databaseDirectory, 'tickets.json');
@@ -433,49 +435,42 @@ else if (button == "close_ticket") {
 } else if (button == 'confirm_close_ticket') {
 
     const channel = interaction.channel;
+    let transcriptBuffer = null;
+    let transcriptUrl = null;
+    try {
+        const html = await buildTranscript(channel);
+        transcriptBuffer = Buffer.from(html, "utf8");
+        const published = await publishTranscript(html);
+        transcriptUrl = published.url;
+    } catch (error) {
+        console.error("[TRANSCRIPT] Could not publish manual-close transcript:", error);
+    }
 
-    const html = await buildTranscript(channel);
-
-    const transcript = new AttachmentBuilder(
-        Buffer.from(html, "utf8"),
-        {
-            name: `transcript-${channel.name}.html`
-        }
-    );
-
-    const username = channel.topic.split(" ")[0];
-    const userId = channel.topic.split(" ")[1];
-
-    const ticketOwner = await client.users.fetch(userId).catch(() => null);
+    const ticketRecord = readTickets().find(ticket => ticket.channelId === channel.id);
+    const { username, userId } = getTicketCustomer(channel, ticketRecord?.userId);
+    const ticketOwner = userId
+        ? await client.users.fetch(userId).catch(() => null)
+        : null;
     if (ticketOwner) {
-        const dmEmbed = new EmbedBuilder()
-    .setColor("#5865F2")
-    .setTitle("🎫 Ticket Closed Successfully")
-    .setThumbnail(guild.iconURL({ dynamic: true }))
-    .setDescription(`
-Hello **${username}**,
-
-Your support ticket has been successfully resolved by our staff.
-
-### Ticket Information
-👤 Customer: <@${userId}>
-🏷 Ticket: ${channel.name}
-🏠 Server: ${guild.name}
-
-📄 Your complete HTML transcript is attached below.
-
-Thank you for choosing **${guild.name}**.
-`)
-    .setFooter({
-        text: guild.name,
-        iconURL: guild.iconURL({ dynamic: true })
-    })
-    .setTimestamp();
-
-await ticketOwner.send({
-    embeds: [dmEmbed],
-    files: [transcript]
-}).catch(console.error);
+        const dmMessage = createTicketClosureNotice({
+            channel,
+            username,
+            userId,
+            transcriptUrl,
+            transcriptFallbackAvailable: Boolean(transcriptBuffer)
+        });
+        if (!transcriptUrl && transcriptBuffer) {
+            dmMessage.files = [
+                new AttachmentBuilder(transcriptBuffer, {
+                    name: "transcript-" + channel.name + ".html"
+                })
+            ];
+        }
+        await ticketOwner.send(dmMessage).catch(error => {
+            console.error("[TRANSCRIPT] Could not DM the ticket owner " + userId + ":", error);
+        });
+    } else {
+        console.warn("[TRANSCRIPT] Ticket owner could not be resolved for channel " + channel.id + ".");
     }
 
     const ticketEmbed = new EmbedBuilder()

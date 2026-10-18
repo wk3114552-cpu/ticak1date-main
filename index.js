@@ -3,6 +3,7 @@ const path = require('node:path');
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { loadConfig } = require('./config/config');
 const { DeployCommands } = require('./deploy-commands');
+const { startTranscriptServer } = require('./transcriptServer');
 require('colors');
 
 async function start() {
@@ -55,6 +56,8 @@ async function start() {
         // Fail before gateway login if command registration is unauthorized.
         await DeployCommands();
         await client.login(token);
+        const transcriptServer = await startTranscriptServer();
+        console.log("[HTTP] Transcript viewer listening on port " + transcriptServer.address().port);
     } catch (error) {
         client.destroy();
         throw error;
