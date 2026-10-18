@@ -1,55 +1,67 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
-const { token } = require('./config.json');
+const { loadConfig } = require('./config/config');
 const { DeployCommands } = require('./deploy-commands');
-
-const client = new Client({ intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildVoiceStates,
-] });
-const fs = require('fs');
 require('colors');
-(async () => {
-    await DeployCommands();
 
-    // Tüm komutları işleyin
-    const eventFiles = fs.readdirSync('./events').filter(file => file.endsWith('.js')); 
-    for (const file of eventFiles) {
-        const event = require(`./events/${file}`);
-        if (event.once) {
-            client.once(event.name, (...args) => event.execute(...args, client));
-        } else {
-            client.on(event.name, (...args) => event.execute(...args, client));
+async function start() {
+    const { token } = loadConfig();
+    const client = new Client({
+        intents: [
+            GatewayIntentBits.Guilds,
+            GatewayIntentBits.GuildMessages,
+            GatewayIntentBits.MessageContent,
+            GatewayIntentBits.GuildMembers,
+            GatewayIntentBits.GuildVoiceStates,
+        ]
+    });
+
+    try {
+        client.commands = new Collection();
+        const commandDirectory = path.join(__dirname, 'commands');
+        const commandFiles = fs.readdirSync(commandDirectory).filter(file => file.endsWith('.js'));
+        for (const file of commandFiles) {
+            const command = require(path.join(commandDirectory, file));
+            if (!command.data?.name || typeof command.execute !== 'function') {
+                throw new Error(`Invalid command module: ${file}`);
+            }
+            client.commands.set(command.data.name, command);
         }
-    }
 
-    // Tüm komutları işleyin
-    client.commands = new Collection();
-    const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
-    for (const file of commandFiles) {
-        const command = require(`./commands/${file}`);
-        client.commands.set(command.data.name, command);
-    }
-
-    let commandNameLength = 0;
-    for (const command of client.commands) {
-        if (command[0].length > commandNameLength) {
-            commandNameLength = command[0].length;
+        const commandNameLength = Math.max(0, ...[...client.commands.keys()].map(name => name.length));
+        for (const [name] of client.commands) {
+            console.log(`[COMMAND] ${name.padEnd(commandNameLength)} | ${'Loaded!'.green}`.gray);
         }
-    }
 
-    for (const command of client.commands) {
-        console.log(`[COMMAND] ${command[0].padEnd(commandNameLength)} | ${'Loaded!'.green}`.gray); 
-    }
+        const eventDirectory = path.join(__dirname, 'events');
+        const eventFiles = fs.readdirSync(eventDirectory).filter(file => file.endsWith('.js'));
+        for (const file of eventFiles) {
+            const event = require(path.join(eventDirectory, file));
+            const handleEvent = (...args) => Promise.resolve().then(() => event.execute(...args, client)).catch(error => {
+                console.error(`[EVENT] ${event.name} failed: ${error.name}: ${error.message}`);
+            });
+            if (event.once) {
+                client.once(event.name, handleEvent);
+            } else {
+                client.on(event.name, handleEvent);
+            }
+        }
 
-    if (!fs.existsSync('./errors')) {
-        fs.mkdirSync('./errors');
-    }
+        for (const directory of ['errors', 'database']) {
+            fs.mkdirSync(path.join(__dirname, directory), { recursive: true });
+        }
 
-    if (!fs.existsSync('./database')) {
-        fs.mkdirSync('./database');
+        // Fail before gateway login if command registration is unauthorized.
+        await DeployCommands();
+        await client.login(token);
+    } catch (error) {
+        client.destroy();
+        throw error;
     }
-    client.login(token); // Discord Giriş
-})();
+}
+
+start().catch(error => {
+    console.error(`[STARTUP] ${error.name || 'Error'}: ${error.message}`);
+    process.exitCode = 1;
+});

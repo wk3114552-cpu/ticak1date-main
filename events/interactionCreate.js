@@ -1,5 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
-const fs = require('fs');
+const fs = require('node:fs');
+const path = require('node:path');
 
 module.exports = {
     name: 'interactionCreate',
@@ -16,26 +17,17 @@ module.exports = {
         } catch (error) {
             const date = new Date();
 
-            const datestring = `${date.getDate()}/${date.getMonth()}/${date.getFullYear()} ${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`; 
+            const datestring = date.toISOString();
+            const filename = `error-${date.toISOString().replace(/[:.]/g, '-')}.txt`;
+            const errorDirectory = path.join(__dirname, '..', 'errors');
+            const errorLog = `[ERROR] [${datestring}] ${interaction.commandName}: ${error.stack || error.message}`;
 
-            const filename = `error-${date.getDate()}-${date.getMonth()}-${date.getFullYear()}-${date.getHours()}-${date.getMinutes()}-${date.getSeconds()}.txt`;
-
-            console.error(`[ERROR] [${datestring}] ${interaction.commandName}: ${error.stack}`.red);
-
-            if (!fs.existsSync('./errors')) {
-                fs.mkdirSync('./errors', { recursive: true }, (err) => {
-                    if (err) return console.error(`[ERROR] cannot create folder errors: ${err.stack}`.red); 
-
-                    fs.writeFileSync(`./errors/${filename}`, `[ERROR] [${datestring}] ${interaction.commandName}: ${error.stack}`, (err) => { 
-
-                        if (err) return console.error(`[ERROR] cannot create file ${filename}: ${err.stack}`.red);
-                    });
-                });
-            } else {
-                fs.writeFileSync(`./errors/${filename}`, `[ERROR] [${datestring}] ${interaction.commandName}: ${error.stack}`, (err) => { 
-
-                    if (err) return console.error(`[ERROR] cannot create file ${filename}: ${err.stack}`.red);
-                });
+            console.error(errorLog.red);
+            try {
+                fs.mkdirSync(errorDirectory, { recursive: true });
+                fs.writeFileSync(path.join(errorDirectory, filename), errorLog, 'utf8');
+            } catch (writeError) {
+                console.error(`[ERROR] Could not write ${filename}: ${writeError.message}`.red);
             }
 
             const { ownerID } = require('../config.json'); 
@@ -52,7 +44,12 @@ module.exports = {
                 .setFooter({ text: client.user.username, iconURL: client.user.avatarURL({ dynamic: true }) })
                 .setTimestamp();
 
-            await interaction.reply({ embeds: [embed], ephemeral: true }); 
+            const response = { embeds: [embed], ephemeral: true };
+            if (interaction.replied || interaction.deferred) {
+                await interaction.followUp(response);
+            } else {
+                await interaction.reply(response);
+            }
         }
     }
 }

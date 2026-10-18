@@ -7,6 +7,7 @@ const {
     StringSelectMenuBuilder
 } = require('discord.js');
 const fs = require('fs');
+const path = require('node:path');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -94,7 +95,7 @@ module.exports = {
         };
 
         fs.writeFileSync(
-            `./database/${interaction.guildId}.json`,
+            path.join(__dirname, '..', 'database', `${interaction.guildId}.json`),
             JSON.stringify(data, null, 4)
         );
 

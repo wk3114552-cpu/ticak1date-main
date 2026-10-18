@@ -16,7 +16,8 @@ const path = require("path");
 const buildTranscript = require('../transcriptGenerator');
 const { TICKET_LIFETIME_MS } = require("../ticketExpiry");
 const ticketCreationLocks = new Set();
-const ticketsFile = "./database/tickets.json";
+const databaseDirectory = path.join(__dirname, '..', 'database');
+const ticketsFile = path.join(databaseDirectory, 'tickets.json');
 
 function readTickets() {
     if (!fs.existsSync(ticketsFile)) return [];
@@ -213,7 +214,7 @@ if (interaction.isStringSelectMenu()) {
         const user = interaction.user;
         const guild = interaction.guild;
 
-        const date = JSON.parse(fs.readFileSync(`./database/${guild.id}.json`));
+        const date = JSON.parse(fs.readFileSync(path.join(databaseDirectory, `${guild.id}.json`), 'utf8'));
 const staffRole = date.role;
 const supportCategory = date.support || date.open;
 const buyCategory = date.buy || date.open;
